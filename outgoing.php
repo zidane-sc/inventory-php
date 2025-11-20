@@ -3,49 +3,45 @@ $page_title = 'Barang Keluar';
 require_once 'header.php';
 requireLogin();
 
-// Handle Form Submit
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $product_id = (int)$_POST['product_id'];
     $qty = (int)$_POST['qty'];
-    $reference_no = clean($_POST['reference_no']);
-    $destination = clean($_POST['destination']);
-    $notes = clean($_POST['notes']);
     $date = clean($_POST['date']);
-
-    // Check Stock First
-    $current_stock = $db->querySingle("SELECT stock FROM products WHERE id = $product_id");
+    $ref_no = clean($_POST['ref_no']); // No SJ
+    $destination = clean($_POST['destination']); // Tujuan/Divisi
+    $description = clean($_POST['description']);
 
     if ($qty <= 0) {
-        flash('msg', 'Jumlah harus lebih dari 0', 'danger');
-    } elseif ($current_stock < $qty) {
-        flash('msg', "Stok tidak mencukupi! Stok saat ini: $current_stock", 'danger');
+        flash('msg', 'Jumlah harus lebih dari 0!', 'danger');
     } else {
-        // Begin Transaction
-        $db->exec('BEGIN');
+        // Check stock first
+        $current_stock = $db->querySingle("SELECT stock FROM products WHERE id = $product_id");
         
-        try {
-            // Insert Transaction
-            $stmt = $db->prepare("INSERT INTO transactions (type, product_id, qty, reference_no, location_destination, notes, date) VALUES ('out', :pid, :qty, :ref, :dest, :notes, :date)");
-            $stmt->bindValue(':pid', $product_id, SQLITE3_INTEGER);
-            $stmt->bindValue(':qty', $qty, SQLITE3_INTEGER);
-            $stmt->bindValue(':ref', $reference_no, SQLITE3_TEXT);
-            $stmt->bindValue(':dest', $destination, SQLITE3_TEXT);
-            $stmt->bindValue(':notes', $notes, SQLITE3_TEXT);
-            $stmt->bindValue(':date', $date, SQLITE3_TEXT);
-            $stmt->execute();
+        if ($current_stock < $qty) {
+            flash('msg', "Stok tidak cukup! Stok saat ini: $current_stock", 'danger');
+        } else {
+            $db->exec("BEGIN");
+            try {
+                // Insert transaction
+                $stmt = $db->prepare("INSERT INTO transactions (product_id, type, qty, date, ref_no, destination, description) VALUES (?, 'out', ?, ?, ?, ?, ?)");
+                $stmt->bindValue(1, $product_id, SQLITE3_INTEGER);
+                $stmt->bindValue(2, $qty, SQLITE3_INTEGER);
+                $stmt->bindValue(3, $date, SQLITE3_TEXT);
+                $stmt->bindValue(4, $ref_no, SQLITE3_TEXT);
+                $stmt->bindValue(5, $destination, SQLITE3_TEXT);
+                $stmt->bindValue(6, $description, SQLITE3_TEXT);
+                $stmt->execute();
 
-            // Update Stock
-            $stmt = $db->prepare("UPDATE products SET stock = stock - :qty WHERE id = :pid");
-            $stmt->bindValue(':qty', $qty, SQLITE3_INTEGER);
-            $stmt->bindValue(':pid', $product_id, SQLITE3_INTEGER);
-            $stmt->execute();
+                // Update stock
+                $db->exec("UPDATE products SET stock = stock - $qty WHERE id = $product_id");
 
-            $db->exec('COMMIT');
-            flash('msg', 'Barang keluar berhasil dicatat');
-            redirect('outgoing.php');
-        } catch (Exception $e) {
-            $db->exec('ROLLBACK');
-            flash('msg', 'Terjadi kesalahan: ' . $e->getMessage(), 'danger');
+                $db->exec("COMMIT");
+                flash('msg', 'Barang keluar berhasil dicatat!', 'success');
+                redirect('outgoing.php');
+            } catch (Exception $e) {
+                $db->exec("ROLLBACK");
+                flash('msg', 'Terjadi kesalahan: ' . $e->getMessage(), 'danger');
+            }
         }
     }
 }
@@ -55,73 +51,48 @@ $products = $db->query("SELECT * FROM products WHERE stock > 0 ORDER BY name ASC
 
 <div class="card">
     <div class="card-header">
-        <h3 class="card-title">Input Barang Keluar</h3>
+        <h3 class="card-title"><i class="fa-solid fa-arrow-right-from-bracket"></i> Input Barang Keluar</h3>
     </div>
     
     <form method="POST">
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
             <div class="form-group">
                 <label>Tanggal</label>
-                <input type="date" name="date" value="<?= date('Y-m-d') ?>" required>
+                <input type="date" name="date" required value="<?= date('Y-m-d') ?>">
             </div>
             <div class="form-group">
-                <label>No. Surat Jalan (SJ)</label>
-                <input type="text" name="reference_no" required placeholder="Contoh: SJ-2023-001">
+                <label>No. Surat Jalan</label>
+                <input type="text" name="ref_no" required placeholder="Contoh: SJ-2023-001">
             </div>
-            
             <div class="form-group">
-                <label>Nama Barang</label>
-                <select name="product_id" required id="productSelect">
+                <label>Barang</label>
+                <select name="product_id" required>
                     <option value="">-- Pilih Barang --</option>
                     <?php while ($row = $products->fetchArray(SQLITE3_ASSOC)): ?>
-                        <option value="<?= $row['id'] ?>" data-stock="<?= $row['stock'] ?>">
-                            <?= htmlspecialchars($row['name']) ?> 
-                            (Stok: <?= $row['stock'] ?>)
-                        </option>
+                        <option value="<?= $row['id'] ?>"><?= htmlspecialchars($row['name']) ?> (Stok: <?= $row['stock'] ?>)</option>
                     <?php endwhile; ?>
                 </select>
             </div>
-            
             <div class="form-group">
-                <label>Jumlah (Qty)</label>
-                <input type="number" name="qty" min="1" required id="qtyInput">
-                <small id="stockHelp" style="color: #666;"></small>
+                <label>Jumlah Keluar</label>
+                <input type="number" name="qty" min="1" required>
             </div>
-
             <div class="form-group">
-                <label>Tujuan</label>
-                <input type="text" name="destination" placeholder="Customer A, Cabang B, dll" required>
+                <label>Tujuan / Divisi</label>
+                <input type="text" name="destination" required placeholder="Contoh: Produksi">
             </div>
-
-            <div class="form-group">
+            <div class="form-group" style="grid-column: 1 / -1;">
                 <label>Keterangan</label>
-                <textarea name="notes" rows="1" style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px;"></textarea>
+                <textarea name="description" rows="2"></textarea>
             </div>
         </div>
-        
-        <div style="margin-top: 20px;">
-            <button type="submit">Simpan Transaksi</button>
+
+        <div style="margin-top: 1rem;">
+            <button type="submit" class="btn btn-primary">
+                <i class="fa-solid fa-save"></i> Simpan Transaksi
+            </button>
         </div>
     </form>
 </div>
-
-<script>
-    // Simple client-side validation/helper
-    const productSelect = document.getElementById('productSelect');
-    const qtyInput = document.getElementById('qtyInput');
-    const stockHelp = document.getElementById('stockHelp');
-
-    productSelect.addEventListener('change', function() {
-        const selectedOption = this.options[this.selectedIndex];
-        const stock = selectedOption.getAttribute('data-stock');
-        if (stock) {
-            qtyInput.max = stock;
-            stockHelp.textContent = `Maksimal: ${stock}`;
-        } else {
-            qtyInput.removeAttribute('max');
-            stockHelp.textContent = '';
-        }
-    });
-</script>
 
 <?php require_once 'footer.php'; ?>

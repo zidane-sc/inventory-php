@@ -3,134 +3,105 @@ $page_title = 'Stock Opname';
 require_once 'header.php';
 requireLogin();
 
-// Handle Form Submit
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $product_id = (int)$_POST['product_id'];
     $actual_qty = (int)$_POST['actual_qty'];
-    $notes = clean($_POST['notes']);
     $date = clean($_POST['date']);
+    $description = clean($_POST['description']);
 
-    // Get System Stock
-    $system_qty = $db->querySingle("SELECT stock FROM products WHERE id = $product_id");
-    
-    // Calculate Difference
-    $difference = $actual_qty - $system_qty;
+    $current_stock = $db->querySingle("SELECT stock FROM products WHERE id = $product_id");
+    $difference = $actual_qty - $current_stock;
 
     if ($difference == 0) {
         flash('msg', 'Stok fisik sama dengan sistem, tidak ada perubahan.', 'warning');
     } else {
-        // Begin Transaction
-        $db->exec('BEGIN');
-        
+        $db->exec("BEGIN");
         try {
-            // Insert Stock Opname Record
-            $stmt = $db->prepare("INSERT INTO stock_opname (product_id, actual_qty, system_qty, difference, notes, date) VALUES (:pid, :actual, :system, :diff, :notes, :date)");
-            $stmt->bindValue(':pid', $product_id, SQLITE3_INTEGER);
-            $stmt->bindValue(':actual', $actual_qty, SQLITE3_INTEGER);
-            $stmt->bindValue(':system', $system_qty, SQLITE3_INTEGER);
-            $stmt->bindValue(':diff', $difference, SQLITE3_INTEGER);
-            $stmt->bindValue(':notes', $notes, SQLITE3_TEXT);
-            $stmt->bindValue(':date', $date, SQLITE3_TEXT);
+            // Record Opname
+            $stmt = $db->prepare("INSERT INTO stock_opname (product_id, date, system_qty, actual_qty, difference, description) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmt->bindValue(1, $product_id, SQLITE3_INTEGER);
+            $stmt->bindValue(2, $date, SQLITE3_TEXT);
+            $stmt->bindValue(3, $current_stock, SQLITE3_INTEGER);
+            $stmt->bindValue(4, $actual_qty, SQLITE3_INTEGER);
+            $stmt->bindValue(5, $difference, SQLITE3_INTEGER);
+            $stmt->bindValue(6, $description, SQLITE3_TEXT);
             $stmt->execute();
 
             // Update Product Stock
-            // If difference is positive, we add. If negative, we subtract (add negative).
-            // Actually we can just set the stock to actual_qty
-            $stmt = $db->prepare("UPDATE products SET stock = :actual WHERE id = :pid");
-            $stmt->bindValue(':actual', $actual_qty, SQLITE3_INTEGER);
-            $stmt->bindValue(':pid', $product_id, SQLITE3_INTEGER);
-            $stmt->execute();
+            $db->exec("UPDATE products SET stock = $actual_qty WHERE id = $product_id");
 
-            $db->exec('COMMIT');
-            flash('msg', 'Stock Opname berhasil disimpan. Stok diperbarui.');
+            // Optional: Record as transaction for history tracking
+            $type = $difference > 0 ? 'in' : 'out';
+            $qty_diff = abs($difference);
+            $desc_tx = "Stock Opname Adjustment ($description)";
+            
+            $stmt_tx = $db->prepare("INSERT INTO transactions (product_id, type, qty, date, ref_no, description) VALUES (?, ?, ?, ?, 'OPNAME', ?)");
+            $stmt_tx->bindValue(1, $product_id, SQLITE3_INTEGER);
+            $stmt_tx->bindValue(2, $type, SQLITE3_TEXT);
+            $stmt_tx->bindValue(3, $qty_diff, SQLITE3_INTEGER);
+            $stmt_tx->bindValue(4, $date, SQLITE3_TEXT);
+            $stmt_tx->bindValue(5, $desc_tx, SQLITE3_TEXT);
+            $stmt_tx->execute();
+
+            $db->exec("COMMIT");
+            flash('msg', 'Stock opname berhasil disimpan!', 'success');
             redirect('stock_opname.php');
         } catch (Exception $e) {
-            $db->exec('ROLLBACK');
+            $db->exec("ROLLBACK");
             flash('msg', 'Terjadi kesalahan: ' . $e->getMessage(), 'danger');
         }
     }
 }
 
 $products = $db->query("SELECT * FROM products ORDER BY name ASC");
-$history = $db->query("SELECT so.*, p.name as product_name, p.size, p.brand 
-                       FROM stock_opname so 
-                       JOIN products p ON so.product_id = p.id 
-                       ORDER BY so.date DESC, so.created_at DESC LIMIT 10");
 ?>
 
 <div class="card">
     <div class="card-header">
-        <h3 class="card-title">Input Stock Opname</h3>
+        <h3 class="card-title"><i class="fa-solid fa-clipboard-check"></i> Input Stock Opname</h3>
     </div>
     
     <form method="POST">
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
             <div class="form-group">
                 <label>Tanggal</label>
-                <input type="date" name="date" value="<?= date('Y-m-d') ?>" required>
+                <input type="date" name="date" required value="<?= date('Y-m-d') ?>">
             </div>
-            
             <div class="form-group">
-                <label>Nama Barang</label>
+                <label>Barang</label>
                 <select name="product_id" required id="productSelect">
                     <option value="">-- Pilih Barang --</option>
                     <?php while ($row = $products->fetchArray(SQLITE3_ASSOC)): ?>
-                        <option value="<?= $row['id'] ?>" data-stock="<?= $row['stock'] ?>">
-                            <?= htmlspecialchars($row['name']) ?> 
-                            (Stok Sistem: <?= $row['stock'] ?>)
-                        </option>
+                        <option value="<?= $row['id'] ?>" data-stock="<?= $row['stock'] ?>"><?= htmlspecialchars($row['name']) ?> (System: <?= $row['stock'] ?>)</option>
                     <?php endwhile; ?>
                 </select>
             </div>
-            
             <div class="form-group">
-                <label>Stok Fisik (Actual)</label>
+                <label>Stok Fisik (Aktual)</label>
                 <input type="number" name="actual_qty" min="0" required>
-                <small style="color: #666;">Masukkan jumlah stok yang ada di gudang saat ini.</small>
             </div>
-
-            <div class="form-group">
+            <div class="form-group" style="grid-column: 1 / -1;">
                 <label>Keterangan</label>
-                <textarea name="notes" rows="1" style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px;"></textarea>
+                <textarea name="description" rows="2"></textarea>
             </div>
         </div>
-        
-        <div style="margin-top: 20px;">
-            <button type="submit">Simpan & Sesuaikan Stok</button>
+
+        <div style="margin-top: 1rem;">
+            <button type="submit" class="btn btn-primary">
+                <i class="fa-solid fa-save"></i> Simpan Perubahan
+            </button>
         </div>
     </form>
 </div>
 
-<div class="card">
-    <div class="card-header">
-        <h3 class="card-title">Riwayat Stock Opname Terakhir</h3>
-    </div>
-    <table>
-        <thead>
-            <tr>
-                <th>Tanggal</th>
-                <th>Barang</th>
-                <th>Sistem</th>
-                <th>Fisik</th>
-                <th>Selisih</th>
-                <th>Ket</th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php while ($row = $history->fetchArray(SQLITE3_ASSOC)): ?>
-            <tr>
-                <td><?= $row['date'] ?></td>
-                <td><?= htmlspecialchars($row['product_name']) ?> (<?= htmlspecialchars($row['brand']) ?>)</td>
-                <td><?= $row['system_qty'] ?></td>
-                <td><?= $row['actual_qty'] ?></td>
-                <td style="color: <?= $row['difference'] >= 0 ? 'var(--success-color)' : 'var(--danger-color)' ?>">
-                    <?= $row['difference'] > 0 ? '+' : '' ?><?= $row['difference'] ?>
-                </td>
-                <td><?= htmlspecialchars($row['notes']) ?></td>
-            </tr>
-            <?php endwhile; ?>
-        </tbody>
-    </table>
-</div>
+<script>
+document.getElementById('productSelect').addEventListener('change', function() {
+    const selected = this.options[this.selectedIndex];
+    const stock = selected.getAttribute('data-stock');
+    if (stock) {
+        // Could auto-fill or show alert, but for now just letting user know
+    }
+});
+</script>
 
 <?php require_once 'footer.php'; ?>

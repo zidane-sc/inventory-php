@@ -1,5 +1,3 @@
 inventory.db
 *.log
 .DS_Store
-test_login.php
-fix_password.php

@@ -3,64 +3,42 @@ $page_title = 'Data Supplier';
 require_once 'header.php';
 requireLogin();
 
-// Handle Add/Edit Supplier
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $action = $_POST['action'];
-    $name = clean($_POST['name']);
-    $phone = clean($_POST['phone']);
-    $address = clean($_POST['address']);
-
-    if ($action === 'add') {
-        $stmt = $db->prepare("INSERT INTO suppliers (name, phone, address) VALUES (:name, :phone, :address)");
-        $stmt->bindValue(':name', $name, SQLITE3_TEXT);
-        $stmt->bindValue(':phone', $phone, SQLITE3_TEXT);
-        $stmt->bindValue(':address', $address, SQLITE3_TEXT);
-        
-        if ($stmt->execute()) {
-            flash('msg', 'Supplier berhasil ditambahkan');
-        } else {
-            flash('msg', 'Gagal menambah supplier', 'danger');
-        }
-    } elseif ($action === 'edit') {
+    if (isset($_POST['action']) && $_POST['action'] === 'delete') {
         $id = (int)$_POST['id'];
-        $stmt = $db->prepare("UPDATE suppliers SET name = :name, phone = :phone, address = :address WHERE id = :id");
-        $stmt->bindValue(':name', $name, SQLITE3_TEXT);
-        $stmt->bindValue(':phone', $phone, SQLITE3_TEXT);
-        $stmt->bindValue(':address', $address, SQLITE3_TEXT);
-        $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
-
-        if ($stmt->execute()) {
-            flash('msg', 'Supplier berhasil diperbarui');
-        } else {
-            flash('msg', 'Gagal memperbarui supplier', 'danger');
-        }
-    }
-    redirect('suppliers.php');
-}
-
-// Handle Delete
-if (isset($_GET['delete'])) {
-    $id = (int)$_GET['delete'];
-    // Check if used in transactions (optional, but good practice)
-    // For now, just delete
-    $stmt = $db->prepare("DELETE FROM suppliers WHERE id = :id");
-    $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
-    if ($stmt->execute()) {
-        flash('msg', 'Supplier berhasil dihapus');
+        $db->exec("DELETE FROM suppliers WHERE id = $id");
+        flash('msg', 'Supplier berhasil dihapus!', 'success');
+        redirect('suppliers.php');
     } else {
-        flash('msg', 'Gagal menghapus supplier', 'danger');
+        $name = clean($_POST['name']);
+        $phone = clean($_POST['phone']);
+        $address = clean($_POST['address']);
+        $id = isset($_POST['id']) ? (int)$_POST['id'] : 0;
+
+        if ($id > 0) {
+            $stmt = $db->prepare("UPDATE suppliers SET name=?, phone=?, address=? WHERE id=?");
+            $stmt->bindValue(1, $name, SQLITE3_TEXT);
+            $stmt->bindValue(2, $phone, SQLITE3_TEXT);
+            $stmt->bindValue(3, $address, SQLITE3_TEXT);
+            $stmt->bindValue(4, $id, SQLITE3_INTEGER);
+            $stmt->execute();
+            flash('msg', 'Supplier berhasil diperbarui!', 'success');
+        } else {
+            $stmt = $db->prepare("INSERT INTO suppliers (name, phone, address) VALUES (?, ?, ?)");
+            $stmt->bindValue(1, $name, SQLITE3_TEXT);
+            $stmt->bindValue(2, $phone, SQLITE3_TEXT);
+            $stmt->bindValue(3, $address, SQLITE3_TEXT);
+            $stmt->execute();
+            flash('msg', 'Supplier berhasil ditambahkan!', 'success');
+        }
+        redirect('suppliers.php');
     }
-    redirect('suppliers.php');
 }
 
-// Fetch for Edit
-$edit_data = null;
+$edit_supplier = null;
 if (isset($_GET['edit'])) {
     $id = (int)$_GET['edit'];
-    $stmt = $db->prepare("SELECT * FROM suppliers WHERE id = :id");
-    $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
-    $result = $stmt->execute();
-    $edit_data = $result->fetchArray(SQLITE3_ASSOC);
+    $edit_supplier = $db->query("SELECT * FROM suppliers WHERE id = $id")->fetchArray(SQLITE3_ASSOC);
 }
 
 $suppliers = $db->query("SELECT * FROM suppliers ORDER BY name ASC");
@@ -68,65 +46,79 @@ $suppliers = $db->query("SELECT * FROM suppliers ORDER BY name ASC");
 
 <div class="card">
     <div class="card-header">
-        <h3 class="card-title"><?= $edit_data ? 'Edit Supplier' : 'Tambah Supplier' ?></h3>
+        <h3 class="card-title"><i class="fa-solid fa-truck"></i> <?= $edit_supplier ? 'Edit Supplier' : 'Tambah Supplier Baru' ?></h3>
     </div>
     
     <form method="POST">
-        <input type="hidden" name="action" value="<?= $edit_data ? 'edit' : 'add' ?>">
-        <?php if ($edit_data): ?>
-            <input type="hidden" name="id" value="<?= $edit_data['id'] ?>">
+        <?php if ($edit_supplier): ?>
+            <input type="hidden" name="id" value="<?= $edit_supplier['id'] ?>">
         <?php endif; ?>
-
-        <div style="display: grid; grid-template-columns: 1fr 1fr 2fr auto; gap: 10px; align-items: end;">
-            <div class="form-group" style="margin-bottom: 0;">
+        
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+            <div class="form-group">
                 <label>Nama Supplier</label>
-                <input type="text" name="name" value="<?= $edit_data ? htmlspecialchars($edit_data['name']) : '' ?>" required>
+                <input type="text" name="name" required value="<?= $edit_supplier ? htmlspecialchars($edit_supplier['name']) : '' ?>">
             </div>
-            <div class="form-group" style="margin-bottom: 0;">
-                <label>No HP</label>
-                <input type="text" name="phone" value="<?= $edit_data ? htmlspecialchars($edit_data['phone']) : '' ?>">
+            <div class="form-group">
+                <label>No. Telepon</label>
+                <input type="text" name="phone" required value="<?= $edit_supplier ? htmlspecialchars($edit_supplier['phone']) : '' ?>">
             </div>
-            <div class="form-group" style="margin-bottom: 0;">
+            <div class="form-group" style="grid-column: 1 / -1;">
                 <label>Alamat</label>
-                <input type="text" name="address" value="<?= $edit_data ? htmlspecialchars($edit_data['address']) : '' ?>">
+                <textarea name="address" rows="2" required><?= $edit_supplier ? htmlspecialchars($edit_supplier['address']) : '' ?></textarea>
             </div>
-            <div>
-                <button type="submit"><?= $edit_data ? 'Simpan Perubahan' : 'Tambah' ?></button>
-                <?php if ($edit_data): ?>
-                    <a href="suppliers.php" class="btn" style="background-color: #95a5a6;">Batal</a>
-                <?php endif; ?>
-            </div>
+        </div>
+
+        <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+            <button type="submit" class="btn btn-primary">
+                <i class="fa-solid fa-save"></i> Simpan
+            </button>
+            <?php if ($edit_supplier): ?>
+                <a href="suppliers.php" class="btn" style="background-color: var(--secondary-color); color: white;">Batal</a>
+            <?php endif; ?>
         </div>
     </form>
 </div>
 
 <div class="card">
     <div class="card-header">
-        <h3 class="card-title">Daftar Supplier</h3>
+        <h3 class="card-title"><i class="fa-solid fa-list"></i> Daftar Supplier</h3>
     </div>
-    <table>
-        <thead>
-            <tr>
-                <th>Nama</th>
-                <th>No HP</th>
-                <th>Alamat</th>
-                <th>Aksi</th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php while ($row = $suppliers->fetchArray(SQLITE3_ASSOC)): ?>
-            <tr>
-                <td><?= htmlspecialchars($row['name']) ?></td>
-                <td><?= htmlspecialchars($row['phone']) ?></td>
-                <td><?= htmlspecialchars($row['address']) ?></td>
-                <td>
-                    <a href="suppliers.php?edit=<?= $row['id'] ?>" class="btn btn-sm" style="background-color: #f39c12;">Edit</a>
-                    <a href="suppliers.php?delete=<?= $row['id'] ?>" class="btn btn-danger btn-sm btn-delete">Hapus</a>
-                </td>
-            </tr>
-            <?php endwhile; ?>
-        </tbody>
-    </table>
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>Nama</th>
+                    <th>Telepon</th>
+                    <th>Alamat</th>
+                    <th>Aksi</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php while ($row = $suppliers->fetchArray(SQLITE3_ASSOC)): ?>
+                <tr>
+                    <td><?= htmlspecialchars($row['name']) ?></td>
+                    <td><?= htmlspecialchars($row['phone']) ?></td>
+                    <td><?= htmlspecialchars($row['address']) ?></td>
+                    <td>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <a href="suppliers.php?edit=<?= $row['id'] ?>" class="btn btn-sm" style="background-color: var(--warning-color); color: white;">
+                                <i class="fa-solid fa-pen"></i>
+                            </a>
+                            <form method="POST" style="display:inline;">
+                                <input type="hidden" name="action" value="delete">
+                                <input type="hidden" name="id" value="<?= $row['id'] ?>">
+                                <button type="submit" class="btn btn-sm btn-delete" style="background-color: var(--danger-color); color: white;">
+                                    <i class="fa-solid fa-trash"></i>
+                                </button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                <?php endwhile; ?>
+            </tbody>
+        </table>
+    </div>
 </div>
 
 <?php require_once 'footer.php'; ?>
