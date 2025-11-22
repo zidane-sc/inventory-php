@@ -34,13 +34,35 @@ A simple, modern, and responsive Inventory Management System built with **Native
     cd inventory-php
     ```
 
-2.  **Ensure PHP and SQLite are installed**:
+2.  **Environment Setup**:
+
+    ### **Linux (Ubuntu/Debian)**
+    Install PHP and the SQLite extension:
     ```bash
-    # Ubuntu/Debian
+    sudo apt update
     sudo apt install php php-sqlite3
     ```
 
+    ### **Windows**
+    1.  **Download PHP**:
+        -   Go to [windows.php.net/download](https://windows.php.net/download/).
+        -   Download the **VS16 x64 Non Thread Safe** (or Thread Safe) Zip file.
+    2.  **Install PHP**:
+        -   Extract the Zip file to `C:\php`.
+        -   Add `C:\php` to your **System Environment Variables (Path)**.
+    3.  **Configure PHP**:
+        -   Rename `php.ini-development` to `php.ini`.
+        -   Open `php.ini` with a text editor (Notepad/VS Code).
+        -   **Uncomment** (remove `;`) the following lines to enable extensions:
+            ```ini
+            extension_dir = "ext"
+            extension=mbstring
+            extension=pdo_sqlite
+            extension=sqlite3
+            ```
+
 3.  **Start the Development Server**:
+    Open your terminal (Command Prompt / PowerShell / Bash) in the project folder and run:
     ```bash
     php -S localhost:8000
     ```
